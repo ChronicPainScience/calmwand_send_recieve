@@ -147,7 +147,8 @@ void setup() {
 
   // Setup BLE
   BLE.begin();
-  BLE.setLocalName("My CalmWand");
+  BLE.setDeviceName("CalmWand 18B");  // Sets the actual device name
+  BLE.setLocalName("CalmWand 18B");  // Sets the advertised local name
   BLE.setAdvertisedService(radarService);
 
   radarService.addCharacteristic(temperatureCharacteristic);
