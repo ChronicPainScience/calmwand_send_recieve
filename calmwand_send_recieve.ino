@@ -80,6 +80,12 @@ BLEStringCharacteristic fileContentChar(
   MAX_LINE_LENGTH
 );
 
+BLEStringCharacteristic fileActionChar(
+  "87f23fe2-4b42-11ed-bdc3-0242ac120013",  // new UUID
+  BLEWrite,
+  32
+);
+
 
 // Color progression of LEDs
 float ColorArray[14][3] = {
@@ -152,11 +158,32 @@ void setup() {
 
   // Create new file in SD card
   SD.begin(chipSelect); 
-  String fileName = "data" + String(fileNumber) + ".txt";
-  while (SD.exists(fileName)) {
-    fileNumber++;  // Increment file number if it already exists
-    fileName = "data" + String(fileNumber) + ".txt";
+  int maxNum = -1;
+  File root = SD.open("/");
+  if (root) {
+    File entry = root.openNextFile();
+    while (entry) {
+      if (!entry.isDirectory()) {
+        String name = entry.name();              // e.g. "data3.txt"
+        if (name.startsWith("data") && name.endsWith(".txt")) {
+          // extract the number between "data" and ".txt"
+          String numStr = name.substring(
+            4,                              // after "data"
+            name.length() - 4               // before ".txt"
+          );
+          int n = numStr.toInt();            // atoi
+          if (n > maxNum) maxNum = n;
+        }
+      }
+      entry.close();
+      entry = root.openNextFile();
+    }
+    root.close();
   }
+
+  // 2) Next file number is highest + 1
+  fileNumber = maxNum + 1;
+  String fileName = "data" + String(fileNumber) + ".txt";
   myFile = SD.open(fileName, FILE_WRITE);
   if (myFile) {
     Serial.print("Recording to ");
@@ -186,8 +213,8 @@ void setup() {
   }
 
   BLE.begin(); //initialize BLE
-  BLE.setDeviceName("CalmWand 14B");  // Sets the actual device name
-  BLE.setLocalName("CalmWand 14B"); // Make sure this matches above
+  BLE.setDeviceName("niketh demo");  // Sets the actual device name
+  BLE.setLocalName("niketh demo"); // Make sure this matches
   BLE.setAdvertisedService(radarService);
 
   radarService.addCharacteristic(temperatureCharacteristic); 
@@ -199,6 +226,7 @@ void setup() {
   radarService.addCharacteristic(fileNameChar);
   radarService.addCharacteristic(fileContentRequestChar);   // NEW
   radarService.addCharacteristic(fileContentChar);          // NEW
+  radarService.addCharacteristic(fileActionChar);
 
   BLE.addService(radarService);  // add service
 
@@ -576,6 +604,40 @@ void loop() {
     else if (cmd == "CANCEL") {
       cancelRequested = true;
       Serial.println("⚠️ Cancel requested");
+    }
+    else if (cmd.startsWith("DELETE:")) {
+      String filename = cmd.substring(strlen("DELETE:"));
+      filename.trim();
+      if (SD.exists(filename)) {
+        SD.remove(filename);
+        Serial.print("🗑  Deleted file: ");
+        Serial.println(filename);
+      } else {
+        Serial.print("⚠️ File not found: ");
+        Serial.println(filename);
+      }
+    }
+  }
+
+  if (fileActionChar.written()) {
+    String cmd = fileActionChar.value();           // e.g. "DELETE:data3.txt"
+    if (cmd.startsWith("DELETE:")) {
+      String fname = cmd.substring(strlen("DELETE:"));
+      fname.trim();
+      if (SD.exists(fname)) {
+        SD.remove(fname);
+        Serial.print("✅ Deleted ");
+        Serial.println(fname);
+        // optional ack back to app:
+        fileNameChar.setValue("DELETED:" + fname);
+      } else {
+        Serial.print("❌ Not found: ");
+        Serial.println(fname);
+        fileNameChar.setValue("ERROR:NOTFOUND:" + fname);
+      }
+      // give central a moment to process the notify
+      unsigned long t0 = millis();
+      while (millis() - t0 < 10) BLE.poll();
     }
   }
 
