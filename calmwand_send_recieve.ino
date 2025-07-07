@@ -617,6 +617,23 @@ void loop() {
         Serial.println(filename);
       }
     }
+    else if (cmd == "DELETEALL") {
+      File root = SD.open("/");
+      File entry = root.openNextFile();
+      while (entry) {
+        if (!entry.isDirectory()) {
+          String fname = entry.name();
+          if (fname.startsWith("data")) {
+            SD.remove(fname);
+            Serial.print("Deleted "); Serial.println(fname);
+          }
+        }
+        entry.close();
+        entry = root.openNextFile();
+      }
+      root.close();
+      Serial.println("All session files removed.");
+    }
   }
 
   if (fileActionChar.written()) {
