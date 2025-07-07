@@ -86,6 +86,13 @@ BLEStringCharacteristic fileActionChar(
   32
 );
 
+// ── NEW: session-ID notify for when a session starts
+BLEStringCharacteristic sessionIdCharacteristic(
+  "87f23fe2-4b42-11ed-bdc3-0242ac120014",  // your new UUID
+  BLERead    | BLENotify,
+  10                                       // enough to hold e.g. "1234"
+);
+
 
 // Color progression of LEDs
 float ColorArray[14][3] = {
@@ -148,6 +155,93 @@ int fileNumber = 0;
 unsigned long previousMillis = 0;   // time of previous data saving time
 const long interval = 1000;   // save 1 temperature data point every "interval" ms
 
+int getNextSessionId() {
+  int maxNum = -1;
+  File root = SD.open("/");
+  if (!root) {
+    Serial.println("⚠️  Couldn’t open root for scan!");
+  } else {
+    Serial.println("🔍 Scanning for existing data*.txt:");
+    File entry = root.openNextFile();
+    while (entry) {
+      String name = entry.name();              // e.g. "DATA0.TXT" or "data2.txt"
+      Serial.print("   • found file: "); Serial.println(name);
+
+      // lowercase version to match against
+      String lname = name;
+      lname.toLowerCase();
+
+      if (lname.startsWith("data") && lname.endsWith(".txt")) {
+        // extract the number between "data" and ".txt"
+        String numStr = lname.substring(4, lname.length() - 4);
+        int n = numStr.toInt();
+        maxNum = max(maxNum, n);
+      }
+      entry.close();
+      entry = root.openNextFile();
+    }
+    root.close();
+  }
+  return maxNum + 1;
+  Serial.print("maxnum is ");
+  Serial.println(maxNum + 1);
+}
+
+void startNewSession() {
+  // — 0) Debug ping that we got the “START” command —
+  Serial.println("🔔 startNewSession() called");
+
+  // — 1) Close any previously-open session file —
+  if (myFile) {
+    myFile.close();
+    Serial.println("⏹ Closed previous session file");
+  }
+
+  // — 2) Walk the root directory looking for “dataN.txt” —
+  int maxNum = -1;
+  File root = SD.open("/");
+  if (!root) {
+    Serial.println("⚠️  Couldn’t open root for scan!");
+  } else {
+    Serial.println("🔍 Scanning for existing data*.txt:");
+    File entry = root.openNextFile();
+    while (entry) {
+      String name = entry.name();              // e.g. "DATA0.TXT" or "data2.txt"
+      Serial.print("   • found file: "); Serial.println(name);
+
+      // lowercase version to match against
+      String lname = name;
+      lname.toLowerCase();
+
+      if (lname.startsWith("data") && lname.endsWith(".txt")) {
+        // extract the number between "data" and ".txt"
+        String numStr = lname.substring(4, lname.length() - 4);
+        int n = numStr.toInt();
+        maxNum = max(maxNum, n);
+      }
+      entry.close();
+      entry = root.openNextFile();
+    }
+    root.close();
+  }
+
+  // — 3) Compute next session ID & open it —
+  fileNumber = maxNum + 1;
+  Serial.print("➡️  Next sessionID = "); Serial.println(fileNumber);
+  String fname = "data" + String(fileNumber) + ".txt";
+
+  myFile = SD.open(fname, FILE_WRITE);
+  if (myFile) {
+    Serial.print("📁 Recording to "); Serial.println(fname);
+  } else {
+    Serial.print("❌ Failed to open "); Serial.println(fname);
+  }
+
+  // — 4) (Optionally) push the new session ID back to the phone —
+  sessionIdCharacteristic.setValue(String(fileNumber));
+  delay(10);
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -158,31 +252,9 @@ void setup() {
 
   // Create new file in SD card
   SD.begin(chipSelect); 
-  int maxNum = -1;
-  File root = SD.open("/");
-  if (root) {
-    File entry = root.openNextFile();
-    while (entry) {
-      if (!entry.isDirectory()) {
-        String name = entry.name();              // e.g. "data3.txt"
-        if (name.startsWith("data") && name.endsWith(".txt")) {
-          // extract the number between "data" and ".txt"
-          String numStr = name.substring(
-            4,                              // after "data"
-            name.length() - 4               // before ".txt"
-          );
-          int n = numStr.toInt();            // atoi
-          if (n > maxNum) maxNum = n;
-        }
-      }
-      entry.close();
-      entry = root.openNextFile();
-    }
-    root.close();
-  }
+  int nextId = getNextSessionId();
 
-  // 2) Next file number is highest + 1
-  fileNumber = maxNum + 1;
+  fileNumber = nextId;
   String fileName = "data" + String(fileNumber) + ".txt";
   myFile = SD.open(fileName, FILE_WRITE);
   if (myFile) {
@@ -227,6 +299,7 @@ void setup() {
   radarService.addCharacteristic(fileContentRequestChar);   // NEW
   radarService.addCharacteristic(fileContentChar);          // NEW
   radarService.addCharacteristic(fileActionChar);
+  radarService.addCharacteristic(sessionIdCharacteristic);
 
   BLE.addService(radarService);  // add service
 
@@ -555,7 +628,9 @@ void loop() {
           }
           f.close();
           int mins = max(1, lineCount / 60);
-          String out = fname + ":" + String(mins);
+          int sid = fname.substring(4, fname.length() - 4).toInt();
+          String out = String(sid) + ":" + fname + ":" + String(mins);
+          fileNameChar.setValue(out);
 
           // 1) Send the notification
           fileNameChar.setValue(out);
@@ -637,7 +712,10 @@ void loop() {
   }
 
   if (fileActionChar.written()) {
-    String cmd = fileActionChar.value();           // e.g. "DELETE:data3.txt"
+    String cmd = fileActionChar.value();
+    if (cmd == "START") {
+      startNewSession();
+    }           // e.g. "DELETE:data3.txt"
     if (cmd.startsWith("DELETE:")) {
       String fname = cmd.substring(strlen("DELETE:"));
       fname.trim();
