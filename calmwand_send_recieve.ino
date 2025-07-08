@@ -322,9 +322,9 @@ void setup() {
   // Initialize vibration progress array
   for (int i = 0; i < NumberOfColors * 6; i++) {
     vibration_progress[i] = 0;
-  }
+  } 
 
-  AnimateLEDs();  // Initial animation
+  //AnimateLEDs();  // Initial animation
 }
 
 // void AnimateLEDs() {
