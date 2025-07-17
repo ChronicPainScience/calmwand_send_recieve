@@ -12,6 +12,8 @@
 #define NUMPIXELS 7  // Number of led lights
 #define MAX_LINE_LENGTH 80
 
+#define BREATH_PIN A0
+
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);  // Initialize LEDs
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();  // Initialize infrared temperature sensor
 
@@ -285,8 +287,8 @@ void setup() {
   }
 
   BLE.begin(); //initialize BLE
-  BLE.setDeviceName("niketh demo");  // Sets the actual device name
-  BLE.setLocalName("niketh demo"); // Make sure this matches
+  BLE.setDeviceName("Calmwand 9B");  // Sets the actual device name
+  BLE.setLocalName("Calmwand 9B"); // Make sure this matches
   BLE.setAdvertisedService(radarService);
 
   radarService.addCharacteristic(temperatureCharacteristic); 
@@ -323,6 +325,9 @@ void setup() {
   for (int i = 0; i < NumberOfColors * 6; i++) {
     vibration_progress[i] = 0;
   } 
+
+  pinMode(BREATH_PIN, OUTPUT);
+  digitalWrite(BREATH_PIN, LOW);
 
   //AnimateLEDs();  // Initial animation
 }
@@ -752,6 +757,9 @@ void loop() {
   } else {
     Brightness = 0;
   }
+
+  bool nowInhale = (BreathPacer < InbreathTime);   // true → inhale phase
+  digitalWrite(BREATH_PIN, nowInhale ? HIGH : LOW);
 
   // Reset Timer if in next breath cycle
   if (BreathPacer >= BreathCycleTime) {
